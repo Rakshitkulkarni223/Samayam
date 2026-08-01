@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'samayam_token'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
 function getToken() {
   try {
@@ -27,7 +28,7 @@ export async function apiFetch(path, options = {}) {
       ...(options.headers || {}),
     }
 
-    const res = await fetch(`/api${path}`, {
+    const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
     })

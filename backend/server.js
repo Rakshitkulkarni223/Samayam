@@ -4,6 +4,8 @@
  * Serves both the REST API and the built React frontend.
  */
 
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') })
+
 const express = require('express')
 const cors = require('cors')
 const Database = require('better-sqlite3')

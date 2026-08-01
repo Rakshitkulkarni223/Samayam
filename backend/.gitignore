@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Python cache (legacy files)
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+*.env
+
+# Local database (contains user data)
+samayam_hospital.db

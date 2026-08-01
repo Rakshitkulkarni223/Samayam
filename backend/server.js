@@ -1,59 +1,26 @@
 #!/usr/bin/env node
 /**
- * SAMAYAM (समय) - Express + SQLite Hospital Backend
- * Serves both the REST API and the built React frontend.
+ * SAMAYAM (समय) - Express + SQLite Hospital Backend (API only)
  */
 
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') })
+const path = require('path')
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
 
 const express = require('express')
 const cors = require('cors')
 const Database = require('better-sqlite3')
 const crypto = require('crypto')
-const path = require('path')
-const fs = require('fs')
-const { execSync } = require('child_process')
 
 const PORT = parseInt(process.env.PORT || '5000', 10)
-const BASE_DIR = __dirname
-const PROJECT_DIR = path.join(BASE_DIR, '..')
-const DB_FILE = path.join(BASE_DIR, 'samayam_hospital.db')
-const REACT_DIST = path.join(PROJECT_DIR, 'client', 'dist')
+const DB_FILE = path.join(__dirname, 'samayam_hospital.db')
 
 const app = express()
-const SESSIONS = {} // in-memory token store
+const SESSIONS = {}
 
-function ensureReactBuild() {
-  try {
-    const indexFile = path.join(REACT_DIST, 'index.html')
-    if (fs.existsSync(indexFile)) {
-      return true
-    }
-
-    const clientDir = path.join(PROJECT_DIR, 'client')
-    if (!fs.existsSync(clientDir)) {
-      console.warn('⚠️  client/ directory not found. Static frontend will not be available.')
-      return false
-    }
-
-    console.log('🔨  React build not found. Building frontend...')
-    execSync('npm run build', { cwd: clientDir, stdio: 'inherit' })
-    console.log('✅ React frontend built successfully.')
-    return true
-  } catch (err) {
-    console.error('[ERROR] ensureReactBuild:', err.message)
-    return false
-  }
-}
-
-const REACT_READY = ensureReactBuild()
-const WEB_DIR = REACT_READY ? REACT_DIST : PROJECT_DIR
-
-// Middleware
 app.use(cors({ origin: true }))
 app.use(express.json())
 
-// Database helpers
+// Database setup
 function initDb() {
   try {
     const db = new Database(DB_FILE)
@@ -85,9 +52,9 @@ function initDb() {
 function migrateDb() {
   try {
     const db = new Database(DB_FILE)
-    const columns = db.prepare("PRAGMA table_info(patients)").all().map(r => r.name)
+    const columns = db.prepare('PRAGMA table_info(patients)').all().map(r => r.name)
     if (!columns.includes('therapy')) {
-      db.exec("ALTER TABLE patients ADD COLUMN therapy TEXT")
+      db.exec('ALTER TABLE patients ADD COLUMN therapy TEXT')
       console.log("⬆️  Added 'therapy' column to patients table")
     }
     db.close()
@@ -329,7 +296,7 @@ function requireAuth(req, res, next) {
   }
 }
 
-// API routes
+// Routes
 app.post('/api/login', (req, res) => {
   try {
     const username = (req.body.username || '').trim()
@@ -379,8 +346,7 @@ app.get('/api/session', (req, res) => {
 
 app.get('/api/patients', requireAuth, (req, res) => {
   try {
-    const patients = fetchAllPatients()
-    res.json(patients)
+    res.json(fetchAllPatients())
   } catch (err) {
     console.error('[ERROR] /api/patients GET:', err.message)
     res.status(500).json({ error: err.message })
@@ -413,8 +379,7 @@ app.post('/api/patients', requireAuth, (req, res) => {
 
 app.put('/api/patients/:id', requireAuth, (req, res) => {
   try {
-    const data = { ...req.body, id: req.params.id }
-    const uin = savePatient(data)
+    const uin = savePatient({ ...req.body, id: req.params.id })
     res.json({ status: 'success', uin })
   } catch (err) {
     console.error('[ERROR] /api/patients PUT:', err.message)
@@ -447,21 +412,13 @@ app.post('/api/attendance', requireAuth, (req, res) => {
   }
 })
 
-// Static React app
-app.use(express.static(WEB_DIR))
-
-// React Router fallback
-app.get('*', (req, res) => {
+// API 404
+app.use((req, res) => {
   try {
-    const indexFile = path.join(WEB_DIR, 'index.html')
-    if (fs.existsSync(indexFile)) {
-      res.sendFile(indexFile)
-    } else {
-      res.status(404).send('Frontend build not found. Run npm run build in the client/ folder.')
-    }
+    res.status(404).json({ error: 'Not found' })
   } catch (err) {
-    console.error('[ERROR] fallback route:', err.message)
-    res.status(500).send(err.message)
+    console.error('[ERROR] 404 handler:', err.message)
+    res.status(500).send('Server error')
   }
 })
 
@@ -481,10 +438,9 @@ function startServer(port, maxAttempts = 10) {
       attempts++
       const server = app.listen(currentPort, () => {
         console.log('\n=======================================================')
-        console.log('🏥 SAMAYAM Express Hospital Server Running!')
-        console.log(`🌐 Access Dashboard at: http://localhost:${currentPort}`)
-        console.log(`📁 Database Location:  ${DB_FILE}`)
-        console.log(`📦 Serving frontend from: ${WEB_DIR}`)
+        console.log('🏥 SAMAYAM Express API Server Running!')
+        console.log(`🌐 API Base URL: http://localhost:${currentPort}/api`)
+        console.log(`📁 Database Location: ${DB_FILE}`)
         console.log('=======================================================\n')
         resolve(server)
       })

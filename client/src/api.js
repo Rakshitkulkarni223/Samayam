@@ -1,5 +1,5 @@
 const TOKEN_KEY = 'samayam_token'
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_BASE = process.env.REACT_APP_API_BASE_URL || '/api'
 
 function getToken() {
   try {

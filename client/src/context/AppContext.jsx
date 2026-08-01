@@ -22,7 +22,6 @@ import {
 
 const AppContext = createContext(null)
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useApp() {
   const ctx = useContext(AppContext)
   try {

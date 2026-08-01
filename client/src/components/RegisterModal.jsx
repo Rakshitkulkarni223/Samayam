@@ -128,7 +128,6 @@ export default function RegisterModal() {
     } catch (e) {
       console.error('Error in register open effect:', e)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app.registerOpen, app.selectedSlot, app.selectedDate])
 
   useEffect(() => {

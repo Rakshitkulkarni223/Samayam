@@ -31,12 +31,13 @@ services:
       # Render injects PORT automatically; no need to set it here.
 
   # ---- Frontend: React Static Site ----
-  - type: static
+  - type: web
     name: samayam-web
+    runtime: static
     rootDir: client
     plan: free
     buildCommand: npm install && npm run build
-    publishDir: build
+    staticPublishPath: ./build
     autoDeploy: true
     envVars:
       # Set this to the backend's public URL + /api after the backend first deploys.
@@ -44,5 +45,6 @@ services:
       - key: REACT_APP_API_BASE_URL
         sync: false
     routes:
-      - src: /*
-        dest: /index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html

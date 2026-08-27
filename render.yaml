@@ -1,0 +1,48 @@
+# Render Blueprint — SAMAYAM (Ayurvedic Hospital Management)
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy steps:
+#   1. Push this repo to GitHub/GitLab.
+#   2. Create a free MongoDB Atlas cluster and grab the connection string.
+#   3. In Render, New > Blueprint, pick this repo. Render will read render.yaml.
+#   4. When prompted, fill in the MONGODB_URI secret with your Atlas URI.
+#   5. After the backend deploys, copy its public URL (e.g. https://samayam-api.onrender.com)
+#      and set REACT_APP_API_BASE_URL on the frontend to <that-url>/api, then redeploy it.
+
+services:
+  # ---- Backend: Node Web Service (Express + MongoDB) ----
+  - type: web
+    name: samayam-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/session
+    autoDeploy: true
+    envVars:
+      # MongoDB Atlas connection string — set this in the Render dashboard (sync: false).
+      - key: MONGODB_URI
+        sync: false
+      - key: SAMAYAM_ADMIN_USER
+        value: admin
+      - key: SAMAYAM_ADMIN_PASS
+        sync: false
+      # Render injects PORT automatically; no need to set it here.
+
+  # ---- Frontend: React Static Site ----
+  - type: static
+    name: samayam-web
+    rootDir: client
+    plan: free
+    buildCommand: npm install && npm run build
+    publishDir: build
+    autoDeploy: true
+    envVars:
+      # Set this to the backend's public URL + /api after the backend first deploys.
+      # Example: https://samayam-api.onrender.com/api
+      - key: REACT_APP_API_BASE_URL
+        sync: false
+    routes:
+      - src: /*
+        dest: /index.html

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SAMAYAM (समय) - Express + SQLite Hospital Backend (API only)
+ * SAMAYAM (समय) - Express + MongoDB Hospital Backend (API only)
  */
 
 const path = require('path')
@@ -8,11 +8,11 @@ require('dotenv').config({ path: path.join(__dirname, '.env') })
 
 const express = require('express')
 const cors = require('cors')
-const Database = require('better-sqlite3')
+const mongoose = require('mongoose')
 const crypto = require('crypto')
 
 const PORT = parseInt(process.env.PORT || '5000', 10)
-const DB_FILE = path.join(__dirname, 'samayam_hospital.db')
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/samayam_hospital'
 
 const app = express()
 const SESSIONS = {}
@@ -20,76 +20,77 @@ const SESSIONS = {}
 app.use(cors({ origin: true }))
 app.use(express.json())
 
-// Database setup
-function initDb() {
+// ---------------------------------------------------------------------------
+// Mongoose models
+// ---------------------------------------------------------------------------
+
+const patientSchema = new mongoose.Schema(
+  {
+    uin: { type: String, required: true, unique: true, index: true },
+    name: { type: String, default: '' },
+    age: { type: Number, default: 0 },
+    gender: { type: String, default: '' },
+    doctor: { type: String, default: '' },
+    slot_id: { type: String, default: 's1' },
+    start_date: { type: String, default: '' },
+    end_date: { type: String, default: '' },
+    treatment_days: { type: Number, default: 7 },
+    notes: { type: String, default: '' },
+    therapy: { type: String, default: '' },
+    attendance: { type: String, default: '{}' },
+  },
+  { timestamps: true }
+)
+
+const userSchema = new mongoose.Schema(
+  {
+    username: { type: String, required: true, unique: true, index: true },
+    password_hash: { type: String, required: true },
+    salt: { type: String, required: true },
+    role: { type: String, default: 'admin' },
+  },
+  { timestamps: true }
+)
+
+const Patient = mongoose.model('Patient', patientSchema)
+const User = mongoose.model('User', userSchema)
+
+// ---------------------------------------------------------------------------
+// Database connection & bootstrap
+// ---------------------------------------------------------------------------
+
+async function connectDb() {
   try {
-    const db = new Database(DB_FILE)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS patients (
-        uin TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        age INTEGER,
-        gender TEXT,
-        doctor TEXT,
-        slot_id TEXT,
-        start_date TEXT,
-        end_date TEXT,
-        treatment_days INTEGER,
-        notes TEXT,
-        therapy TEXT,
-        attendance TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `)
-    db.close()
-    console.log(`✅ SQLite Database Initialized: ${DB_FILE}`)
+    mongoose.set('strictQuery', true)
+    await mongoose.connect(MONGODB_URI)
+    console.log(`✅ MongoDB Connected: ${MONGODB_URI.replace(/\/\/([^:]+):[^@]+@/, '//$1:****@')}`)
   } catch (err) {
-    console.error('[ERROR] initDb:', err.message)
+    console.error('[ERROR] connectDb:', err.message)
     throw err
   }
 }
 
-function migrateDb() {
+async function initAuthDb() {
   try {
-    const db = new Database(DB_FILE)
-    const columns = db.prepare('PRAGMA table_info(patients)').all().map(r => r.name)
-    if (!columns.includes('therapy')) {
-      db.exec('ALTER TABLE patients ADD COLUMN therapy TEXT')
-      console.log("⬆️  Added 'therapy' column to patients table")
-    }
-    db.close()
-  } catch (err) {
-    console.error('[ERROR] migrateDb:', err.message)
-  }
-}
-
-function initAuthDb() {
-  try {
-    const db = new Database(DB_FILE)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
-        password_hash TEXT NOT NULL,
-        salt TEXT NOT NULL,
-        role TEXT DEFAULT 'admin',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `)
-
-    const count = db.prepare('SELECT COUNT(*) AS c FROM users').get().c
-    if (count === 0) {
-      const adminUser = process.env.SAMAYAM_ADMIN_USER || 'admin'
-      const adminPass = process.env.SAMAYAM_ADMIN_PASS || 'admin123'
-      createUser(adminUser, adminPass, 'admin')
-      console.log(`🔐 Created default admin user: ${adminUser} / ${adminPass}`)
+    const adminUser = process.env.SAMAYAM_ADMIN_USER || 'admin'
+    const adminPass = process.env.SAMAYAM_ADMIN_PASS || 'admin123'
+    // Always sync the env-defined admin credentials on boot so that changing
+    // SAMAYAM_ADMIN_PASS and restarting takes effect (the user is upserted).
+    await createUser(adminUser, adminPass, 'admin')
+    const count = await User.countDocuments()
+    if (count === 1) {
+      console.log(`🔐 Admin user ready: ${adminUser} / ${adminPass}`)
       console.log('   Set SAMAYAM_ADMIN_USER and SAMAYAM_ADMIN_PASS env vars to override.')
     }
-    db.close()
   } catch (err) {
     console.error('[ERROR] initAuthDb:', err.message)
     throw err
   }
 }
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
 
 function hashPassword(password, salt) {
   try {
@@ -100,27 +101,24 @@ function hashPassword(password, salt) {
   }
 }
 
-function createUser(username, password, role = 'admin') {
+async function createUser(username, password, role = 'admin') {
   try {
-    const db = new Database(DB_FILE)
     const salt = crypto.randomBytes(16).toString('hex')
     const passwordHash = hashPassword(password, salt)
-    const stmt = db.prepare(
-      'INSERT OR REPLACE INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)'
+    await User.findOneAndUpdate(
+      { username },
+      { username, password_hash: passwordHash, salt, role },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     )
-    stmt.run(username, passwordHash, salt, role)
-    db.close()
   } catch (err) {
     console.error('[ERROR] createUser:', err.message)
     throw err
   }
 }
 
-function verifyUser(username, password) {
+async function verifyUser(username, password) {
   try {
-    const db = new Database(DB_FILE)
-    const row = db.prepare('SELECT password_hash, salt FROM users WHERE username = ?').get(username)
-    db.close()
+    const row = await User.findOne({ username }).lean()
     if (!row) return false
     const computed = hashPassword(password, row.salt)
     return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(row.password_hash))
@@ -158,6 +156,10 @@ function invalidateSession(token) {
     return false
   }
 }
+
+// ---------------------------------------------------------------------------
+// Domain helpers
+// ---------------------------------------------------------------------------
 
 function slotIdToTime(slotId) {
   try {
@@ -202,7 +204,7 @@ function extractTherapies(notes) {
 
 function rowToPatient(row) {
   try {
-    const patient = { ...row }
+    const patient = row.toObject ? row.toObject() : { ...row }
     patient.id = patient.uin
     patient.slotId = patient.slot_id
     patient.slotTime = slotIdToTime(patient.slot_id)
@@ -221,11 +223,9 @@ function rowToPatient(row) {
   }
 }
 
-function fetchAllPatients() {
+async function fetchAllPatients() {
   try {
-    const db = new Database(DB_FILE)
-    const rows = db.prepare('SELECT * FROM patients ORDER BY created_at DESC').all()
-    db.close()
+    const rows = await Patient.find().sort({ createdAt: -1 }).lean()
     return rows.map(rowToPatient)
   } catch (err) {
     console.error('[ERROR] fetchAllPatients:', err.message)
@@ -233,7 +233,7 @@ function fetchAllPatients() {
   }
 }
 
-function savePatient(data) {
+async function savePatient(data) {
   try {
     const uin = data.uin || data.id || 'UIN-001'
     const name = data.name || ''
@@ -251,14 +251,24 @@ function savePatient(data) {
       therapy = extractTherapies(notes).join(', ')
     }
 
-    const db = new Database(DB_FILE)
-    const stmt = db.prepare(`
-      INSERT OR REPLACE INTO patients
-      (uin, name, age, gender, doctor, slot_id, start_date, end_date, treatment_days, notes, therapy, attendance)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    stmt.run(uin, name, age, gender, doctor, slotId, startDate, endDate, treatmentDays, notes, therapy, attendance)
-    db.close()
+    await Patient.findOneAndUpdate(
+      { uin },
+      {
+        uin,
+        name,
+        age,
+        gender,
+        doctor,
+        slot_id: slotId,
+        start_date: startDate,
+        end_date: endDate,
+        treatment_days: treatmentDays,
+        notes,
+        therapy,
+        attendance,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    )
     return uin
   } catch (err) {
     console.error('[ERROR] savePatient:', err.message)
@@ -266,12 +276,9 @@ function savePatient(data) {
   }
 }
 
-function updateAttendance(uin, attendance) {
+async function updateAttendance(uin, attendance) {
   try {
-    const db = new Database(DB_FILE)
-    const stmt = db.prepare('UPDATE patients SET attendance = ? WHERE uin = ?')
-    stmt.run(JSON.stringify(attendance || {}), uin)
-    db.close()
+    await Patient.updateOne({ uin }, { attendance: JSON.stringify(attendance || {}) })
     return true
   } catch (err) {
     console.error('[ERROR] updateAttendance:', err.message)
@@ -279,7 +286,10 @@ function updateAttendance(uin, attendance) {
   }
 }
 
+// ---------------------------------------------------------------------------
 // Auth middleware
+// ---------------------------------------------------------------------------
+
 function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || ''
@@ -296,15 +306,18 @@ function requireAuth(req, res, next) {
   }
 }
 
+// ---------------------------------------------------------------------------
 // Routes
-app.post('/api/login', (req, res) => {
+// ---------------------------------------------------------------------------
+
+app.post('/api/login', async (req, res) => {
   try {
     const username = (req.body.username || '').trim()
     const password = req.body.password || ''
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' })
     }
-    if (verifyUser(username, password)) {
+    if (await verifyUser(username, password)) {
       const token = createSession(username)
       console.log(`🔓 Login successful: ${username}`)
       return res.json({ status: 'success', token, user: username })
@@ -344,20 +357,18 @@ app.get('/api/session', (req, res) => {
   }
 })
 
-app.get('/api/patients', requireAuth, (req, res) => {
+app.get('/api/patients', requireAuth, async (req, res) => {
   try {
-    res.json(fetchAllPatients())
+    res.json(await fetchAllPatients())
   } catch (err) {
     console.error('[ERROR] /api/patients GET:', err.message)
     res.status(500).json({ error: err.message })
   }
 })
 
-app.get('/api/patients/:id', requireAuth, (req, res) => {
+app.get('/api/patients/:id', requireAuth, async (req, res) => {
   try {
-    const db = new Database(DB_FILE)
-    const row = db.prepare('SELECT * FROM patients WHERE uin = ?').get(req.params.id)
-    db.close()
+    const row = await Patient.findOne({ uin: req.params.id }).lean()
     if (!row) return res.status(404).json({ error: 'Patient not found' })
     res.json(rowToPatient(row))
   } catch (err) {
@@ -366,9 +377,9 @@ app.get('/api/patients/:id', requireAuth, (req, res) => {
   }
 })
 
-app.post('/api/patients', requireAuth, (req, res) => {
+app.post('/api/patients', requireAuth, async (req, res) => {
   try {
-    const uin = savePatient(req.body)
+    const uin = await savePatient(req.body)
     console.log(`💾 Saved patient: ${req.body.name || ''} (${uin})`)
     res.json({ status: 'success', uin })
   } catch (err) {
@@ -377,9 +388,9 @@ app.post('/api/patients', requireAuth, (req, res) => {
   }
 })
 
-app.put('/api/patients/:id', requireAuth, (req, res) => {
+app.put('/api/patients/:id', requireAuth, async (req, res) => {
   try {
-    const uin = savePatient({ ...req.body, id: req.params.id })
+    const uin = await savePatient({ ...req.body, id: req.params.id })
     res.json({ status: 'success', uin })
   } catch (err) {
     console.error('[ERROR] /api/patients PUT:', err.message)
@@ -387,12 +398,10 @@ app.put('/api/patients/:id', requireAuth, (req, res) => {
   }
 })
 
-app.delete('/api/patients/:id', requireAuth, (req, res) => {
+app.delete('/api/patients/:id', requireAuth, async (req, res) => {
   try {
-    const db = new Database(DB_FILE)
-    const result = db.prepare('DELETE FROM patients WHERE uin = ?').run(req.params.id)
-    db.close()
-    if (result.changes === 0) return res.status(404).json({ error: 'Patient not found' })
+    const result = await Patient.deleteOne({ uin: req.params.id })
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Patient not found' })
     res.json({ status: 'success' })
   } catch (err) {
     console.error('[ERROR] /api/patients DELETE:', err.message)
@@ -400,16 +409,20 @@ app.delete('/api/patients/:id', requireAuth, (req, res) => {
   }
 })
 
-app.post('/api/attendance', requireAuth, (req, res) => {
+app.post('/api/attendance', requireAuth, async (req, res) => {
   try {
     const uin = req.body.uin || req.body.id
     if (!uin) return res.status(400).json({ error: 'uin is required' })
-    updateAttendance(uin, req.body.attendance)
+    await updateAttendance(uin, req.body.attendance)
     res.json({ status: 'success' })
   } catch (err) {
     console.error('[ERROR] /api/attendance:', err.message)
     res.status(500).json({ error: err.message })
   }
+})
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' })
 })
 
 // API 404
@@ -428,7 +441,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message })
 })
 
-// Start server with port fallback
+// ---------------------------------------------------------------------------
+// Start server
+// ---------------------------------------------------------------------------
+
 function startServer(port, maxAttempts = 10) {
   return new Promise((resolve, reject) => {
     let currentPort = port
@@ -440,7 +456,6 @@ function startServer(port, maxAttempts = 10) {
         console.log('\n=======================================================')
         console.log('🏥 SAMAYAM Express API Server Running!')
         console.log(`🌐 API Base URL: http://localhost:${currentPort}/api`)
-        console.log(`📁 Database Location: ${DB_FILE}`)
         console.log('=======================================================\n')
         resolve(server)
       })
@@ -462,13 +477,12 @@ function startServer(port, maxAttempts = 10) {
 
 async function main() {
   try {
-    initDb()
-    migrateDb()
-    initAuthDb()
+    await connectDb()
+    await initAuthDb()
     const server = await startServer(PORT)
     process.on('SIGINT', () => {
       console.log('\n🛑 Shutting down SAMAYAM server.')
-      server.close(() => process.exit(0))
+      server.close(() => mongoose.disconnect().then(() => process.exit(0)))
     })
   } catch (err) {
     console.error('[ERROR] main:', err.message)

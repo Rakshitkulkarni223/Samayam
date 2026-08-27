@@ -31,11 +31,11 @@ services:
       # Render injects PORT automatically; no need to set it here.
 
   # ---- Frontend: React Static Site ----
+  # Note: static sites are free by default and do not accept a `plan` field.
   - type: web
     name: samayam-web
     runtime: static
     rootDir: client
-    plan: free
     buildCommand: npm install && npm run build
     staticPublishPath: ./build
     autoDeploy: true

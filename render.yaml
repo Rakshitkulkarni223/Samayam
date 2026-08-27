@@ -16,9 +16,8 @@ services:
     runtime: node
     rootDir: backend
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /api/session
+    buildCommand: npm ci || npm install
+    startCommand: node server.js
     autoDeploy: true
     envVars:
       # MongoDB Atlas connection string — set this in the Render dashboard (sync: false).

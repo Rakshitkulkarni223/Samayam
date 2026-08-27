@@ -16,7 +16,7 @@ services:
     runtime: node
     rootDir: backend
     plan: free
-    buildCommand: npm install --no-optional --no-audit --no-fund --prefer-offline
+    buildCommand: yarn install --frozen-lockfile || yarn install
     startCommand: node server.js
     autoDeploy: true
     envVars:
@@ -35,7 +35,7 @@ services:
     name: samayam-web
     runtime: static
     rootDir: client
-    buildCommand: npm install --no-optional --no-audit --no-fund && npm run build
+    buildCommand: yarn install && yarn build
     staticPublishPath: ./build
     autoDeploy: true
     envVars:

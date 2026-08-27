@@ -63,7 +63,7 @@ function Background() {
   return content
 }
 
-function Sidebar() {
+function Sidebar({ mobileOpen, onNavClick }) {
   const app = useApp()
   const navigate = useNavigate()
 
@@ -100,13 +100,14 @@ function Sidebar() {
   const handleNavClick = (tabId) => {
     try {
       app.setActiveTab(tabId)
+      if (onNavClick) onNavClick()
     } catch (e) {
       console.error('Error in tab click:', e)
     }
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
       <div className="brand">
         <div className="brand-logo">
           <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className="dhanwantari-logo">
@@ -167,7 +168,7 @@ function Sidebar() {
   )
 }
 
-function Header() {
+function Header({ onMenuToggle }) {
   const app = useApp()
   const [time, setTime] = useState('')
   const [date, setDate] = useState('')
@@ -258,6 +259,9 @@ function Header() {
     headerContent = (
       <header className="workspace-header">
         <div className="header-left">
+          <button className="mobile-menu-toggle" onClick={onMenuToggle} aria-label="Toggle menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
           <div className="breadcrumb">
             <span className="root-breadcrumb">SAMAYAM</span>
             {app.activeTab !== 'dashboard' && (
@@ -337,8 +341,26 @@ function Header() {
 
 export default function Layout() {
   const app = useApp()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const tabClass = (id) => `tab-pane ${app.activeTab === id ? 'active' : ''}`
+
+  const closeMobileMenu = () => {
+    try {
+      setMobileMenuOpen(false)
+    } catch (e) {
+      console.error('Error in closeMobileMenu:', e)
+    }
+  }
+
+  // Close sidebar on tab change (mobile)
+  useEffect(() => {
+    try {
+      setMobileMenuOpen(false)
+    } catch (e) {
+      console.error('Error closing mobile menu on tab change:', e)
+    }
+  }, [app.activeTab])
 
   let content
 
@@ -346,9 +368,11 @@ export default function Layout() {
     content = (
       <div className="app-layout">
         <Background />
-        <Sidebar />
+        {/* Mobile sidebar backdrop */}
+        <div className={`sidebar-backdrop ${mobileMenuOpen ? 'visible' : ''}`} onClick={closeMobileMenu}></div>
+        <Sidebar mobileOpen={mobileMenuOpen} onNavClick={closeMobileMenu} />
         <main className="main-workspace">
-          <Header />
+          <Header onMenuToggle={() => { try { setMobileMenuOpen((v) => !v) } catch (e) { console.error('Error toggling menu:', e) } }} />
           <div className="dashboard-scrollable">
             <section className={tabClass('dashboard')}>
               <Dashboard />

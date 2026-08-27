@@ -35,7 +35,7 @@ services:
     name: samayam-web
     runtime: static
     rootDir: client
-    buildCommand: yarn install && yarn build
+    buildCommand: npm install --no-optional --no-audit --no-fund && npm run build
     staticPublishPath: ./build
     autoDeploy: true
     envVars:
